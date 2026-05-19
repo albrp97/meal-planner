@@ -169,9 +169,13 @@ def header(title: str) -> None:
     print(f"{BG}{GREEN}+{'-' * 76}+{RESET}")
 
 
+def recommendation_mode(rec: dict[str, object]) -> str:
+    return "daily discovery" if rec.get("recommendation_kind") == "discovery" else "ranked"
+
+
 def print_dashboard(conn: sqlite3.Connection) -> None:
     header("MEAL PLANNER // EVA-01 LOCAL DASH")
-    recs = recommendations(conn, limit=5)
+    recs = recommendations(conn, limit=6)
     if not recs:
         print(color("No approved recipes available.", ROSE))
         return
@@ -193,8 +197,9 @@ def print_dashboard(conn: sqlite3.Connection) -> None:
         t = rec["totals"]
         protein = f"{t['protein_per_serving_g']:.1f}g"
         marker = price_marker_from_totals(t)
+        kind = "D" if rec.get("recommendation_kind") == "discovery" else "R"
         print(
-            f"  {compact_metric('R', idx)} {color(rec['name'], PURPLE)} "
+            f"  {compact_metric(kind, idx)} {color(rec['name'], PURPLE)} "
             f"{metric('batch', marked_money(t['cost_czk'], marker))} "
             f"{metric('meal', marked_money(t['cost_per_serving_czk'], marker))} "
             f"{metric('protein', protein, ORANGE)} "
@@ -218,13 +223,15 @@ def print_recommendations(conn: sqlite3.Connection, limit: int = 5) -> None:
         totals = rec["totals"]
         protein = f"{totals['protein_per_serving_g']:.1f}g"
         kcal = f"{totals['kcal_per_serving']:.0f}"
-        print(f"{compact_metric('R', idx)} {color(rec['name'], PURPLE)}")
+        kind = "D" if rec.get("recommendation_kind") == "discovery" else "R"
+        print(f"{compact_metric(kind, idx)} {color(rec['name'], PURPLE)}")
         print(
             f"  {metric('cost', cost_pair(totals))}  "
             f"{metric('protein', protein, ORANGE)}  "
             f"{metric('kcal', kcal, ORANGE)}  "
             f"{metric('servings', int(totals['servings']), ORANGE)}  "
-            f"{metric('cooked', rec.get('cooked_count', 0), ORANGE)}"
+            f"{metric('cooked', rec.get('cooked_count', 0), ORANGE)}  "
+            f"{metric('mode', recommendation_mode(rec))}"
         )
         if rec["meal_categories"]:
             print(f"  {metric('categories', category_text(rec['meal_categories']))}")
@@ -1004,8 +1011,9 @@ def draw_interactive(
             meal = f"{marked_money(totals['cost_per_serving_czk'], marker):>9}"
             protein = f"{totals['protein_per_serving_g']:>4.1f}g"
             cooked = f"{int(rec.get('cooked_count', 0)):>2}"
+            kind = "D" if rec.get("recommendation_kind") == "discovery" else "R"
             ranking.append(
-                f"{prefix} {compact_metric('R', idx + 1)} {color(name, PURPLE if idx == selected else TEXT)} "
+                f"{prefix} {compact_metric(kind, idx + 1)} {color(name, PURPLE if idx == selected else TEXT)} "
                 f"{compact_metric('B', batch)} "
                 f"{compact_metric('M', meal)} "
                 f"{compact_metric('P', protein)} "
@@ -1022,6 +1030,7 @@ def draw_interactive(
                 f"{metric('cost', cost_pair(totals))}  {metric('protein', protein, ORANGE)}",
                 metric("price source", price_legend()),
                 metric("cooked", selected_rec.get("cooked_count", 0), ORANGE),
+                metric("mode", recommendation_mode(selected_rec)),
                 metric("categories", category_text(selected_rec.get("meal_categories", []))),
                 metric("review", recipe_review_label(conn, str(selected_rec["recipe_id"]))),
             ]

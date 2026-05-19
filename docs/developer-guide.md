@@ -19,6 +19,8 @@ Build a local-first Python CLI/TUI app before adding YouTube ingestion. This kee
 | English visible text | Spanish/English sources are accepted, but displayed recipe names, ingredient names, procedures, and review notes are normalized to English. |
 | Source flags | Real Lidl prices and approved zero-cost water must remain distinguishable from estimates. |
 | LLM client isolated in `llm_client.py` | Copilot-backed calls are available later without coupling core calculations to network calls. |
+| AIDD-style guidance | `vision.md`, `AGENTS.md`, `aidd-custom/`, and `ai/commands/` guide future AI-assisted work without adding a runtime dependency. |
+| Controlled discovery | Recommendation lists with six visible slots use five ranked picks plus one deterministic daily discovery pick to avoid overly repetitive patterns without surfacing unsafe meals. |
 
 ## Implemented modules
 
@@ -38,6 +40,17 @@ Build a local-first Python CLI/TUI app before adding YouTube ingestion. This kee
 | `youtube_ingestion.py` | Channel discovery, transcript caching, audio transcription fallback hooks, candidate extraction, dedupe, and approval workflow. |
 | `tui.py` | Terminal dashboard, searchable recipe catalog, past-meal navigation, detail panes, and formatted command output. |
 | `cli.py` | Command routing and local app entry point. |
+
+## AIDD-inspired workflow layer
+
+The sibling `aidd` framework is a JavaScript/Markdown AI development system. This Python app does not need its Node runtime, server utilities, or generic scaffold files. The useful pieces have been adapted as repository-local guidance:
+
+- `vision.md` gives agents a single source of truth for product goals, non-goals, technical constraints, and UX rules.
+- `AGENTS.md` defines project-wide agent instructions and validation commands.
+- `aidd-custom/AGENTS.md` and `aidd-custom/skills/` add meal-planner-specific rules for recipe curation, YouTube ingestion, and TUI work.
+- `ai/commands/` provides repeatable workflow prompts for catalog audits, channel ingestion, and UI changes.
+
+This layer is intentionally documentation-only: it improves future AI work without adding dependencies, startup cost, or runtime complexity.
 
 ## Deferred work
 

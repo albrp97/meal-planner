@@ -318,8 +318,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Check local app state.")
     doctor.set_defaults(func=cmd_doctor)
 
-    recommend = sub.add_parser("recommend", help="Show ranked recommendations.")
-    recommend.add_argument("--limit", type=int, default=5)
+    recommend = sub.add_parser("recommend", help="Show ranked recommendations plus a daily discovery slot.")
+    recommend.add_argument("--limit", type=int, default=6)
     recommend.set_defaults(func=cmd_recommend)
 
     accept = sub.add_parser("accept", help="Accept/cook a recommended recipe.")

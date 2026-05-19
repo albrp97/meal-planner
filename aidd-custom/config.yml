@@ -1,0 +1,3 @@
+agent-config: copilot-cli
+e2eBeforeCommit: false
+

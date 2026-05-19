@@ -35,7 +35,7 @@ Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept 
 - Recipe and ingredient prices show source markers: `✓` verified/approved, `*` estimated, `?` missing.
 - Normalized recipes with grams/ml/units, gram equivalents beside non-gram amounts when known, multi-serving batch plans, batch-vs-individual cooking steps, total batch costs, per-meal costs, and macros.
 - Recommendation ranking based on cost, protein, meal category, variety, batch practicality, estimate confidence, cooked count, rejections, and recent meal history.
-- Recommendations show at most one recipe per meal category and prefer categories that were not recently cooked.
+- Recommendations show at most one recipe per meal category, prefer categories that were not recently cooked, and include a deterministic daily discovery slot (`D`) when six suggestions are shown.
 - The interactive UI shows the last 5 accepted/cooked meals on the main recommendation screen and has a selectable past-meals view for reopening recipe details from history.
 - Recipe catalog is selectable and searchable in the UI; when sorted, the first metric shown follows the active sort, such as `P:` for protein or `M:` for cheapest per meal.
 - Shopping-list aggregation for one or more recipes.
@@ -48,7 +48,7 @@ Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept 
 | `meal-planner` | Open the interactive terminal UI. |
 | `meal-planner doctor` | Check database, seed data, and local Copilot auth file presence. |
 | `meal-planner init --reset` | Recreate the local database and seed the initial data. |
-| `meal-planner recommend --limit 5` | Show category-diverse recipe recommendations with cost, protein, servings, and variety notes. |
+| `meal-planner recommend --limit 6` | Show category-diverse recipe recommendations with cost, protein, servings, variety notes, and one daily discovery slot. |
 | `meal-planner accept <recipe>` | Mark a recipe as cooked/accepted and update history. |
 | `meal-planner reject <recipe> --reason "..."` | Record a rejected recommendation. |
 | `meal-planner shopping-list <recipe>` | Show quantities and expected costs for a recipe. |
@@ -73,6 +73,17 @@ Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept 
 | `meal-planner youtube extract-recipes [--model gpt-5.4-mini]` | Extract reviewable recipe candidates from cached transcripts/pages. |
 | `meal-planner youtube status` | Show ingestion status counts. |
 | `meal-planner youtube candidates list/show/approve/approve-all/discard/merge` | Review extracted candidates before importing them, or bulk-approve them. |
+
+## AI-assisted development
+
+This repository includes a lightweight AIDD-style guidance layer adapted from the sibling `aidd` framework:
+
+- [`vision.md`](vision.md) is the source of truth for product goals, non-goals, technical constraints, and UX principles.
+- [`AGENTS.md`](AGENTS.md) gives AI agents project-wide rules and validation expectations.
+- [`aidd-custom/`](aidd-custom/) contains meal-planner-specific skills for recipe curation, YouTube ingestion, and TUI work.
+- [`ai/commands/`](ai/commands/) contains reusable workflow prompts for catalog audits, YouTube ingestion, and terminal UI changes.
+
+Read these files before asking an AI agent to make substantial code, recipe, or ingestion changes.
 
 ## LLM usage
 

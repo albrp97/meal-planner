@@ -46,6 +46,8 @@ This opens the EVA-01 styled terminal UI.
 
 The main screen shows recommendations, selected recipe details, and the last 5 accepted/cooked meals. Recipes in those last 5 accepted meals are excluded from new recommendations. Recipe and ingredient names are shown in English.
 
+When six recommendations are visible, the first five are ranked picks (`R`) and one is a deterministic daily discovery pick (`D`). The discovery pick is weighted-random from safe viable meals, stays stable for the day while history is unchanged, and avoids low-protein, side/component, dessert, and recently accepted recipes.
+
 Keyboard controls:
 
 | Key | Action |
@@ -68,7 +70,7 @@ Vim-style `j`/`k` movement and `a` to accept still work as secondary shortcuts, 
 ## 4. See recommendations
 
 ```sh
-meal-planner recommend --limit 5
+meal-planner recommend --limit 6
 ```
 
 Each recommendation includes:
@@ -76,6 +78,7 @@ Each recommendation includes:
 - total batch cost and cost per meal
 - protein and calories per serving
 - servings and cooked count
+- `R` for ranked picks or `D` for the daily discovery pick
 - meal categories and variety notes when a recent meal overlaps
 
 ## 5. Inspect the recipes

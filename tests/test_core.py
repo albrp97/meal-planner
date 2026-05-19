@@ -152,6 +152,97 @@ class MealPlannerCoreTests(unittest.TestCase):
             self.assertNotIn(category, used)
             used.add(category)
 
+    def test_recommendations_prefer_untried_viable_meals_before_repeats(self) -> None:
+        first_id = str(recommendations(self.conn, limit=1)[0]["recipe_id"])
+        record_decision(self.conn, first_id, "accepted", "test")
+
+        rec_ids = {str(rec["recipe_id"]) for rec in recommendations(self.conn, limit=6)}
+
+        self.assertNotIn(first_id, rec_ids)
+
+    def test_recommendations_add_stable_daily_discovery_slot(self) -> None:
+        first = recommendations(self.conn, limit=6)
+        second = recommendations(self.conn, limit=6)
+
+        self.assertEqual(len(first), 6)
+        self.assertEqual(first[-1]["recommendation_kind"], "discovery")
+        self.assertEqual(second[-1]["recommendation_kind"], "discovery")
+        self.assertEqual(first[-1]["recipe_id"], second[-1]["recipe_id"])
+        self.assertTrue(all(rec["recommendation_kind"] == "ranked" for rec in first[:-1]))
+        self.assertGreaterEqual(first[-1]["totals"]["protein_per_serving_g"], 20)
+        self.assertNotIn(first[-1]["primary_category"], {"sides_components", "desserts_sweets"})
+
+    def test_recommendations_surface_low_scored_untried_viable_meal_before_repeats(self) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO ingredients
+            (id, name, category, default_unit, tags, nutrition_source, kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g)
+            VALUES ('test-lean-protein', 'Test lean protein', 'protein', 'g', '["protein"]',
+                    'llm_estimate', 400, 80, 5, 5)
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO prices (ingredient_id, context, price_czk, package_qty, package_unit, price_per_kg, source)
+            VALUES ('test-lean-protein', 'test', 5000, 1, 'kg', 5000, 'llm_estimate')
+            """
+        )
+        self.conn.execute(
+            """
+            INSERT INTO recipes
+            (id, name, status, meal_type, servings, raw_source, procedure, tags, source_type,
+             protein_status, decision_status, decision_reason)
+            VALUES
+            ('test-low-score-chicken', 'Low Score Chicken Bowl', 'approved', 'lunch_dinner', 4,
+             'chicken bowl', 'Batch cook: cook the protein and divide into four meals.',
+             '["chicken"]', 'test', 'ok', 'approved', '')
+            """
+        )
+        for _ in range(30):
+            self.conn.execute(
+                """
+                INSERT INTO recipe_ingredients
+                (recipe_id, ingredient_id, display_name, quantity, unit, grams, source, notes)
+                VALUES ('test-low-score-chicken', 'test-lean-protein', 'Test lean protein', 15, 'g', 15, 'test', '')
+                """
+            )
+        self.conn.commit()
+        scored = [
+            score_recipe(self.conn, row["id"], recent_tags=[], recent_categories=[])
+            for row in self.conn.execute("SELECT id FROM recipes WHERE status = 'approved'").fetchall()
+        ]
+        target = min(
+            (
+                item
+                for item in scored
+                if item["totals"]["protein_per_serving_g"] >= 20
+                and item["primary_category"] not in {"sides_components", "desserts_sweets"}
+            ),
+            key=lambda item: item["score"],
+        )
+        target_id = str(target["recipe_id"])
+        self.assertLess(target["score"], 35)
+        for row in self.conn.execute("SELECT id FROM recipes WHERE status = 'approved'").fetchall():
+            if row["id"] != target_id:
+                record_decision(self.conn, row["id"], "accepted", "test")
+
+        rec_ids: list[str] = []
+        for _ in range(10):
+            rec_ids = [str(rec["recipe_id"]) for rec in recommendations(self.conn, limit=20)]
+            if target_id in rec_ids:
+                break
+            record_decision(self.conn, rec_ids[0], "accepted", "test")
+
+        self.assertIn(target_id, rec_ids)
+
+    def test_recommendations_filter_low_protein_and_component_meals(self) -> None:
+        recs = recommendations(self.conn, limit=1000)
+
+        self.assertTrue(recs)
+        for rec in recs:
+            self.assertGreaterEqual(rec["totals"]["protein_per_serving_g"], 20)
+            self.assertNotIn(rec["primary_category"], {"sides_components", "desserts_sweets"})
+
     def test_cooked_and_rejected_penalties_keep_rotating_recipes(self) -> None:
         baseline = score_recipe(self.conn, "pizza")
         for _ in range(5):

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import random
 import re
 import sqlite3
+from datetime import date
 
 from .calculations import recipe_tags, recipe_totals
 
 PROTEIN_TARGET_G = 35.0
+MIN_RECOMMENDATION_PROTEIN_G = 20.0
+DISCOVERY_SLOT_LIMIT = 6
+DISCOVERY_POOL_SIZE = 50
 RECENT_RECIPE_EXCLUSION_LIMIT = 5
 RECENT_CATEGORY_LIMIT = 5
 RECENT_REJECTED_LIMIT = 10
@@ -179,6 +185,7 @@ MEAL_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "moussaka",
         "laab moo",
         "hongshaorou",
+        "gallina",
         "berenjenas salteadas",
         "yu xiang",
     ),
@@ -250,6 +257,7 @@ MEAL_CATEGORY_LABELS = {
     "desserts_sweets": "desserts & sweets",
     "uncategorized": "uncategorized",
 }
+LOW_VALUE_RECOMMENDATION_CATEGORIES = {"sides_components", "desserts_sweets"}
 CORE_INGREDIENT_CATEGORY_FALLBACK: dict[str, tuple[str, ...]] = {
     "pasta_lasagna": ("pasta-espaguetis",),
     "rice_bowls": ("arroz-basmati",),
@@ -504,32 +512,115 @@ def score_recipe(
     }
 
 
+def _recommendation_history_token(conn: sqlite3.Connection) -> str:
+    row = conn.execute("SELECT count(*) AS total, coalesce(max(id), 0) AS latest FROM meal_history").fetchone()
+    return f"{date.today().isoformat()}:{row['total']}:{row['latest']}"
+
+
+def _discovery_weight(item: dict[str, object]) -> float:
+    totals = item["totals"]
+    protein_bonus = 0.0
+    if isinstance(totals, dict):
+        protein_bonus = min(18.0, max(0.0, float(totals["protein_per_serving_g"]) - MIN_RECOMMENDATION_PROTEIN_G) * 0.6)
+    novelty_bonus = 28.0 if int(item["cooked_count"]) == 0 else max(0.0, 10.0 - float(item["cooked_count"]))
+    score_weight = max(0.0, float(item["score"]) + 50.0)
+    return max(1.0, score_weight + novelty_bonus + protein_bonus)
+
+
+def _daily_discovery(
+    conn: sqlite3.Connection,
+    candidates: list[dict[str, object]],
+    selected_recipe_ids: set[str],
+    used_categories: set[str],
+) -> dict[str, object] | None:
+    pool = [
+        item
+        for item in candidates
+        if str(item["recipe_id"]) not in selected_recipe_ids and str(item["primary_category"]) not in used_categories
+    ]
+    if not pool:
+        return None
+    pool = [item for item in pool if not item["repeated_categories"]]
+    if not pool:
+        return None
+    pool = pool[:DISCOVERY_POOL_SIZE]
+    seed_parts = [
+        _recommendation_history_token(conn),
+        ",".join(str(item["recipe_id"]) for item in pool),
+        ",".join(sorted(selected_recipe_ids)),
+    ]
+    seed = hashlib.sha256("|".join(seed_parts).encode("utf-8")).hexdigest()
+    # Deterministic sampling keeps the discovery meal stable for the same day/history.
+    rng = random.Random(seed)  # nosec B311
+    selected = rng.choices(pool, weights=[_discovery_weight(item) for item in pool], k=1)[0]
+    discovery = dict(selected)
+    discovery["recommendation_kind"] = "discovery"
+    return discovery
+
+
 def recommendations(conn: sqlite3.Connection, limit: int = 5) -> list[dict[str, object]]:
     recent = recent_accepted_tags(conn)
     recent_categories = recent_accepted_category_sets(conn)
+    recent_recipe_ids = recent_accepted_recipe_ids(conn)
     rows = conn.execute("SELECT id FROM recipes WHERE status = 'approved'").fetchall()
     scored = [score_recipe(conn, row["id"], recent, recent_categories) for row in rows]
     scored.sort(key=lambda item: float(item["score"]), reverse=True)
     diverse: list[dict[str, object]] = []
     used_categories: set[str] = set()
+    ranked_limit = max(0, limit - 1) if limit >= DISCOVERY_SLOT_LIMIT else limit
 
-    def add_items(items: list[dict[str, object]], minimum_score: float | None = None) -> None:
+    def is_viable_meal(item: dict[str, object]) -> bool:
+        totals = item["totals"]
+        if not isinstance(totals, dict):
+            return False
+        return (
+            float(totals["protein_per_serving_g"]) >= MIN_RECOMMENDATION_PROTEIN_G
+            and str(item["primary_category"]) not in LOW_VALUE_RECOMMENDATION_CATEGORIES
+        )
+
+    def add_items(
+        items: list[dict[str, object]], minimum_score: float | None = None, max_items: int = ranked_limit
+    ) -> None:
         for item in items:
             if minimum_score is not None and float(item["score"]) < minimum_score:
                 continue
             category = str(item["primary_category"])
             if category in used_categories:
                 continue
-            diverse.append(item)
+            ranked = dict(item)
+            ranked.setdefault("recommendation_kind", "ranked")
+            diverse.append(ranked)
             used_categories.add(category)
-            if len(diverse) >= limit:
+            if len(diverse) >= max_items:
                 return
 
-    add_items([item for item in scored if not item["repeated_categories"]], MIN_RECOMMENDATION_SCORE)
-    if len(diverse) < min(limit, MIN_RECOMMENDATION_COUNT):
-        add_items([item for item in scored if item["repeated_categories"]], MIN_RECOMMENDATION_SCORE)
+    eligible = [item for item in scored if is_viable_meal(item) and str(item["recipe_id"]) not in recent_recipe_ids]
+    never_cooked = [item for item in eligible if int(item["cooked_count"]) == 0]
+    cooked = [item for item in eligible if int(item["cooked_count"]) > 0]
+
+    add_items([item for item in never_cooked if not item["repeated_categories"]])
+    if len(diverse) < min(ranked_limit, MIN_RECOMMENDATION_COUNT):
+        add_items([item for item in cooked if not item["repeated_categories"]], MIN_RECOMMENDATION_SCORE)
+    if len(diverse) < min(ranked_limit, MIN_RECOMMENDATION_COUNT):
+        add_items(never_cooked)
+    if len(diverse) < min(ranked_limit, MIN_RECOMMENDATION_COUNT):
+        add_items(cooked, MIN_RECOMMENDATION_SCORE)
+    if len(diverse) < min(ranked_limit, MIN_RECOMMENDATION_COUNT):
+        add_items(eligible)
+    if len(diverse) < ranked_limit:
+        add_items([item for item in eligible if not item["repeated_categories"]], max_items=ranked_limit)
     if not diverse and scored:
-        add_items(scored)
+        add_items(scored, max_items=ranked_limit)
+    if limit >= DISCOVERY_SLOT_LIMIT:
+        discovery = _daily_discovery(
+            conn,
+            eligible,
+            {str(item["recipe_id"]) for item in diverse},
+            {str(item["primary_category"]) for item in diverse},
+        )
+        if discovery is not None:
+            diverse.append(discovery)
+            used_categories.add(str(discovery["primary_category"]))
     return diverse
 
 
