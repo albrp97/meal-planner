@@ -6,7 +6,7 @@ from pathlib import Path
 from . import __version__
 from .curation import similar_recipes
 from .db import connect, ensure_database, find_recipe, init_schema, reset_database
-from .enrichment import enrich_recipes
+from .enrichment import enrich_recipes, fill_missing_nutrition
 from .importers import import_prices, import_recipes
 from .paths import COPILOT_CONFIG_PATH, DEFAULT_DB_PATH
 from .recommender import record_decision
@@ -176,6 +176,12 @@ def cmd_similar(args: argparse.Namespace) -> None:
         return
     for match in matches:
         print(f"{match['recipe_id']}: {match['name']} similarity::{match['similarity']}")
+
+
+def cmd_llm_fill_nutrition(args: argparse.Namespace) -> None:
+    conn = open_db()
+    counts = fill_missing_nutrition(conn, batch_size=args.batch_size)
+    print(f"total::{counts['total']} updated::{counts['updated']} batches::{counts['batches']}")
 
 
 def cmd_llm_enrich(args: argparse.Namespace) -> None:
@@ -361,6 +367,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--only-missing", action="store_true", help="Only review recipes without a stored LLM review."
     )
     llm_enrich.set_defaults(func=cmd_llm_enrich)
+
+    llm_fill_nutrition = llm_sub.add_parser(
+        "fill-nutrition", help="Use Copilot to fill missing nutrition for llm_estimate ingredients."
+    )
+    llm_fill_nutrition.add_argument("--batch-size", type=int, default=50)
+    llm_fill_nutrition.set_defaults(func=cmd_llm_fill_nutrition)
 
     recipes = sub.add_parser("recipes", help="Recipe commands.")
     recipes_sub = recipes.add_subparsers(dest="recipes_command")

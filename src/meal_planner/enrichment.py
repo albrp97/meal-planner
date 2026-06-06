@@ -195,6 +195,80 @@ def save_review(conn: sqlite3.Connection, recipe_id: str, review: RecipeReview, 
     conn.commit()
 
 
+NUTRITION_CONTEXT = """You are a nutrition database assistant.
+Given a list of food ingredients, return their approximate nutritional values per 100g as JSON.
+Use standard USDA/nutritional database values. Round to 1 decimal place.
+Return ONLY a JSON array with no markdown, no explanation, matching this schema exactly:
+[{"id": "<ingredient_id>", "kcal": <number>, "protein": <number>, "carbs": <number>, "fat": <number>}, ...]
+For water and zero-calorie items like salt, use 0 for all macros.
+If you truly cannot estimate an ingredient, use reasonable mid-range values for its category.
+"""
+
+
+def fill_missing_nutrition(
+    conn: sqlite3.Connection,
+    batch_size: int = 50,
+    ask: Callable[[str, str], str] = copilot_ask,
+    model: str = DEFAULT_MODEL,
+) -> dict[str, int]:
+    """Fill kcal/protein/carbs/fat for ingredients with llm_estimate source and zero values."""
+    rows = conn.execute(
+        """
+        SELECT id, name FROM ingredients
+        WHERE nutrition_source = 'llm_estimate'
+        AND kcal_per_100g = 0 AND protein_per_100g = 0 AND carbs_per_100g = 0 AND fat_per_100g = 0
+        ORDER BY name
+        """
+    ).fetchall()
+    if not rows:
+        return {"total": 0, "updated": 0, "batches": 0}
+
+    updated = 0
+    batches = 0
+    for start in range(0, len(rows), batch_size):
+        batch = rows[start : start + batch_size]
+        items = [{"id": r["id"], "name": r["name"]} for r in batch]
+        prompt = (
+            "Provide approximate nutritional values per 100g for each ingredient below.\n"
+            f"Return a JSON array with one object per ingredient.\n\n{json.dumps(items, ensure_ascii=False)}"
+        )
+        raw = ask(prompt, NUTRITION_CONTEXT, model)
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = [line for line in text.splitlines() if not line.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        try:
+            results = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(results, list):
+            continue
+        for entry in results:
+            if not isinstance(entry, dict) or "id" not in entry:
+                continue
+            try:
+                conn.execute(
+                    """
+                    UPDATE ingredients
+                    SET kcal_per_100g = ?, protein_per_100g = ?, carbs_per_100g = ?, fat_per_100g = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        float(entry.get("kcal", 0)),
+                        float(entry.get("protein", 0)),
+                        float(entry.get("carbs", 0)),
+                        float(entry.get("fat", 0)),
+                        entry["id"],
+                    ),
+                )
+                updated += conn.execute("SELECT changes()").fetchone()[0]
+            except (TypeError, ValueError):
+                continue
+        conn.commit()
+        batches += 1
+    return {"total": len(rows), "updated": updated, "batches": batches}
+
+
 def recipe_ids_for_enrichment(conn: sqlite3.Connection, only_missing: bool = False) -> list[str]:
     if only_missing:
         rows = conn.execute(
