@@ -11,7 +11,7 @@ SEED_VERSION = "2026-05-14-mvp-1"
 PRICE_CONTEXT = "Lidl Prague 2026"
 DRAFT_FILLER_VERSION = "2026-05-15-curated-approved-1"
 SERIOUS_CURATION_VERSION = "2026-05-15-explicit-recipe-methods-2"
-RECIPE_QUALITY_VERSION = "2026-05-15-procedure-quality-1"
+RECIPE_QUALITY_VERSION = "2026-06-06-english-steak-potato-1"
 CURATED_RECIPE_IDS = {"pasta-pollo", "pizza", "pollo-papa-horno", "puchero", "hamburguesa"}
 
 PROCEDURE_FIXES: dict[str, str] = {
@@ -46,7 +46,67 @@ PROCEDURE_FIXES: dict[str, str] = {
         "Batch cook: make the gravy by cooking butter and flour into a roux for 2-3 minutes, then gradually whisk in the reduced stock until smooth. "
         "Batch prep: season with salt and black pepper. Batch plan: cool and refrigerate; reheat portions gently before serving and adjust texture with a little stock or water if needed."
     ),
+    "entrecot-a-la-mantequilla-con-ajo-y-romero": (
+        "Batch prep: Pat the entrecots dry with kitchen paper. Season both sides generously with salt and black pepper. "
+        "If time allows, rest uncovered in the fridge for up to 1 hour before cooking. "
+        "Batch prep: Peel and cut the potatoes into wedges. Toss with a little olive oil, salt, and pepper. "
+        "Batch cook: Roast the potato wedges at 200 C for 35 to 40 minutes, turning once halfway, until golden and crispy. Keep warm. "
+        "Individual cook: Place a heavy skillet over very high heat. Sear the entrecot 2 minutes on the first side and 1 minute on the second until a deep brown crust forms. "
+        "Reduce heat to medium-low. Add the butter, garlic cloves, and rosemary sprigs. Baste the meat continuously with the melted butter for 1 to 2 minutes to your preferred doneness. "
+        "Individual cook: Remove to a plate, tent with aluminium foil, and rest for 10 minutes. Slice against the grain, spoon the warm garlic butter over the top, and finish with flaky salt. "
+        "Serve with the roasted potato wedges."
+    ),
+    "steak-with-pickles": (
+        "Batch prep: Pat the steak dry, season both sides with salt and black pepper, and let it sit at room temperature for 20 minutes. "
+        "Batch prep: Peel and cut the potatoes into 2 cm cubes. Toss with the olive oil, salt, and pepper. "
+        "Batch cook: Roast the potatoes at 200 C for 30 to 35 minutes, turning once, until golden and tender. "
+        "Batch cook: Heat a dry skillet over medium-high heat for 2 minutes until very hot. Add a drizzle of oil and sear the steak for 3 to 5 minutes per side depending on thickness. "
+        "For medium-rare, aim for an internal temperature of 52 to 54 C before resting. "
+        "Batch cook: Transfer the steak to a plate and rest for 10 minutes. Batch prep: Portion the pickles into 4 side servings while the steak rests. "
+        "Individual cook: Slice the steak against the grain just before serving and plate with the roasted potatoes and pickles."
+    ),
 }
+
+RECIPE_FIELD_FIXES: dict[str, dict[str, object]] = {
+    "entrecot-a-la-mantequilla-con-ajo-y-romero": {
+        "name": "Pan-Seared Entrecot with Garlic and Rosemary Butter",
+        "tags": ["youtube", "lunch", "dinner", "red_meat"],
+        "decision_reason": (
+            "Main pan-sear technique, not deep-fried; adapts well to a batch-friendly dinner. "
+            "High protein, suitable for fitness. Served with roasted potato wedges for a balanced meal."
+        ),
+    },
+    "steak-with-pickles": {
+        "tags": ["youtube", "lunch", "dinner", "red_meat"],
+        "decision_reason": (
+            "Pan-seared steak dinner; not deep-fried. Expanded into a practical 4-serving batch plan. "
+            "Served with roasted potatoes for balanced carbs."
+        ),
+    },
+}
+
+RECIPE_INGREDIENT_ADDITIONS: list[dict[str, object]] = [
+    {
+        "recipe_id": "entrecot-a-la-mantequilla-con-ajo-y-romero",
+        "ingredient_id": "patata",
+        "display_name": "Potato",
+        "quantity": 800.0,
+        "unit": "g",
+        "grams": 800.0,
+        "source": "manual_curation",
+        "notes": "Roasted wedges served as carb side.",
+    },
+    {
+        "recipe_id": "steak-with-pickles",
+        "ingredient_id": "patata",
+        "display_name": "Potato",
+        "quantity": 800.0,
+        "unit": "g",
+        "grams": 800.0,
+        "source": "manual_curation",
+        "notes": "Roasted cubes served as carb side.",
+    },
+]
 
 
 def ingredient(
@@ -1550,6 +1610,44 @@ def apply_recipe_quality_curation(conn: sqlite3.Connection) -> None:
         exists = conn.execute("SELECT 1 FROM recipes WHERE id = ?", (recipe_id,)).fetchone()
         if exists:
             conn.execute("UPDATE recipes SET procedure = ? WHERE id = ?", (procedure, recipe_id))
+
+    for recipe_id, fields in RECIPE_FIELD_FIXES.items():
+        exists = conn.execute("SELECT 1 FROM recipes WHERE id = ?", (recipe_id,)).fetchone()
+        if not exists:
+            continue
+        if "name" in fields:
+            conn.execute("UPDATE recipes SET name = ? WHERE id = ?", (fields["name"], recipe_id))
+        if "tags" in fields:
+            conn.execute("UPDATE recipes SET tags = ? WHERE id = ?", (json.dumps(fields["tags"]), recipe_id))
+        if "decision_reason" in fields:
+            conn.execute("UPDATE recipes SET decision_reason = ? WHERE id = ?", (fields["decision_reason"], recipe_id))
+
+    for addition in RECIPE_INGREDIENT_ADDITIONS:
+        recipe_id = addition["recipe_id"]
+        ingredient_id = addition["ingredient_id"]
+        if not conn.execute("SELECT 1 FROM recipes WHERE id = ?", (recipe_id,)).fetchone():
+            continue
+        if not conn.execute(
+            "SELECT 1 FROM recipe_ingredients WHERE recipe_id = ? AND ingredient_id = ?",
+            (recipe_id, ingredient_id),
+        ).fetchone():
+            conn.execute(
+                """
+                INSERT INTO recipe_ingredients
+                (recipe_id, ingredient_id, display_name, quantity, unit, grams, source, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    recipe_id,
+                    ingredient_id,
+                    addition["display_name"],
+                    addition["quantity"],
+                    addition["unit"],
+                    addition["grams"],
+                    addition["source"],
+                    addition["notes"],
+                ),
+            )
 
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('recipe_quality_version', ?)",
