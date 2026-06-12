@@ -220,7 +220,11 @@ class YouTubeIngestionTests(unittest.TestCase):
                 transcribe_audio_faster_whisper("VIDEO000003")
 
     def test_audio_transcriber_surfaces_download_failure(self) -> None:
-        with patch("meal_planner.youtube_ingestion.download_audio", side_effect=RuntimeError("download failed")):
+        fake_module = SimpleNamespace(WhisperModel=object)
+        with (
+            patch.dict("sys.modules", {"faster_whisper": fake_module}),
+            patch("meal_planner.youtube_ingestion.download_audio", side_effect=RuntimeError("download failed")),
+        ):
             with self.assertRaisesRegex(RuntimeError, "download failed"):
                 transcribe_audio_faster_whisper("VIDEO000003")
 
