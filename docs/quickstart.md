@@ -57,6 +57,7 @@ Keyboard controls:
 | `Enter` | Accept/cook the highlighted recommendation; in the recipe catalog, open recipe details. |
 | `x` | Reject the highlighted recipe. |
 | `d` | Show ingredients, costs, and cooking steps for the highlighted recommendation or catalog recipe. |
+| `m` | In a recipe detail view, ask Copilot a question or request a recipe change. |
 | `s` | Show the shopping list for the highlighted recipe. |
 | `r` | Return to recommendations. |
 | `c` | Show selectable recipe catalog. |
@@ -97,6 +98,8 @@ The last column shows whether the recipe has been reviewed by the LLM:
 Draft recipes are kept instead of deleted. They are incomplete and should be reviewed before cooking.
 
 Inside the interactive UI, press `c` to open the recipe catalog, press `/` to type a recipe search, press `Enter` to finish typing, move with arrows, then press `Enter` or `d` to inspect the selected recipe. From recommendations, press `p` to jump into past meals and inspect something you cooked before.
+
+Inside a recipe detail view, press `m` to ask Copilot about the recipe. Questions return an answer without changing the recipe. Explicit change requests, such as scaling servings or replacing an ingredient, are applied only when Copilot returns a structured update using existing ingredient IDs; the app then recalculates totals and refreshes recommendation caches.
 
 To inspect one recipe with its ingredients and cooking steps:
 

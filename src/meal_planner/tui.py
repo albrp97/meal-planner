@@ -12,6 +12,7 @@ from collections.abc import Iterable
 
 from .calculations import latest_price, line_cost, recipe_totals, shopping_list
 from .db import find_recipe
+from .recipe_chat import ask_recipe_copilot
 from .recommender import (
     meal_category_label,
     meal_category_labels,
@@ -423,15 +424,29 @@ def draw_box(title: str, lines: list[str], width: int) -> None:
     write_line(color("+" + "-" * inner + "+", GREEN))
 
 
-def key_hint() -> str:
-    return (
-        f"{color('q', ORANGE)} quit  {color('up/down', ORANGE)} move  {color('enter', ORANGE)} accept  "
-        f"{color('x', ORANGE)} reject  {color('s', ORANGE)} shopping  {color('r', ORANGE)} recs  "
-        f"{color('d', ORANGE)} details  {color('c', ORANGE)} recipes  {color('o', ORANGE)} sort  "
-        f"{color('/', ORANGE)} search  {color('p', ORANGE)} history  "
-        f"{color('i', ORANGE)} ingredients  "
-        f"{color('h', ORANGE)} help"
+def key_hint_lines(view: str = "recommendations") -> list[str]:
+    first = (
+        f"{color('q', ORANGE)} quit  {color('up/down', ORANGE)} move  {color('r', ORANGE)} recs  "
+        f"{color('c', ORANGE)} recipes  {color('p', ORANGE)} history  {color('h', ORANGE)} help"
     )
+    if view == "detail":
+        second = (
+            f"{color('m', ORANGE)} ask/modify with Copilot  {color('s', ORANGE)} shopping  "
+            f"{color('r', ORANGE)} back to recs"
+        )
+    elif view == "recipes":
+        second = (
+            f"{color('enter/d', ORANGE)} details  {color('a', ORANGE)} cook  {color('x', ORANGE)} delete  "
+            f"{color('o', ORANGE)} sort  {color('/', ORANGE)} search"
+        )
+    elif view == "history":
+        second = f"{color('enter/d', ORANGE)} details  {color('r', ORANGE)} back to recommendations"
+    else:
+        second = (
+            f"{color('enter/a', ORANGE)} accept  {color('x', ORANGE)} reject  {color('d', ORANGE)} details  "
+            f"{color('s', ORANGE)} shopping  {color('/', ORANGE)} search  {color('i', ORANGE)} ingredients"
+        )
+    return [first, second]
 
 
 def decode_escape_sequence(sequence: str) -> str:
@@ -925,6 +940,29 @@ def detail_step_lines(conn: sqlite3.Connection, item_id: str, width: int = 86, l
     return recipe_step_lines(conn, item_id, width=width, limit=limit)
 
 
+def copilot_reply_lines(reply: str, width: int = 86, limit: int = 6) -> list[str]:
+    text = reply.strip()
+    if not text:
+        return []
+    wrapped: list[str] = []
+    for paragraph in text.splitlines():
+        wrapped.extend(textwrap.wrap(paragraph, width=max(32, width)) or [""])
+    return [highlight_numbers(line) for line in wrapped[:limit]]
+
+
+def read_text_prompt(old_term: list[object], prompt: str) -> str:
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
+    sys.stdout.write(SHOW_CURSOR + RESET + "\n")
+    sys.stdout.write(prompt + "\n> ")
+    sys.stdout.flush()
+    try:
+        return sys.stdin.readline().strip()
+    finally:
+        tty.setcbreak(sys.stdin.fileno())
+        sys.stdout.write(HIDE_CURSOR)
+        sys.stdout.flush()
+
+
 def draw_interactive(
     conn: sqlite3.Connection,
     view: str,
@@ -935,6 +973,7 @@ def draw_interactive(
     history_selected: int = 0,
     search_query: str = "",
     message: str = "",
+    copilot_reply: str = "",
     recs: list[dict[str, object]] | None = None,
     recipes: list[dict[str, object]] | None = None,
     history: list[dict[str, object]] | None = None,
@@ -956,7 +995,7 @@ def draw_interactive(
     history_selected = min(max(history_selected, 0), max(0, len(history) - 1))
 
     sys.stdout.write(CLEAR + HIDE_CURSOR)
-    draw_box("MEAL PLANNER // EVA-01 LOCAL", [key_hint(), message or "ready"], width)
+    draw_box("MEAL PLANNER // EVA-01 LOCAL", [*key_hint_lines(view), message or "ready"], width)
 
     if view == "help":
         draw_box(
@@ -969,6 +1008,7 @@ def draw_interactive(
                 "Press / to type a live recipe search; Enter finishes typing and keeps the filter.",
                 "Press p from recommendations to open past cooked meals; enter/d opens their details.",
                 "In the recipe catalog, o cycles sorting and x deletes/hides the selected recipe.",
+                "In a detail view, press m to ask Copilot or request a structured recipe update.",
                 "Press x to reject a recommendation, d for selected details, s for a shopping list.",
                 "Press r to return to recommendations and q to quit safely.",
             ],
@@ -992,12 +1032,15 @@ def draw_interactive(
         draw_box("PAST MEALS", history_lines(history, selected=history_selected, limit=max(8, lines - 10)), width)
     elif view == "ingredients":
         draw_box("INGREDIENTS", ingredient_lines(conn, limit=max(8, lines - 10)), width)
-    elif view == "shopping" and selected_rec:
-        draw_box(f"SHOPPING // {selected_rec['name']}", shopping_lines(conn, str(selected_rec["recipe_id"])), width)
+    elif view == "shopping" and (detail_recipe_id or selected_rec):
+        recipe_id = detail_recipe_id or str(selected_rec["recipe_id"])
+        draw_box(f"SHOPPING // {detail_name(conn, recipe_id)}", shopping_lines(conn, recipe_id), width)
     elif view == "detail" and (detail_recipe_id or selected_rec):
         recipe_id = detail_recipe_id or str(selected_rec["recipe_id"])
         recipe_name = detail_name(conn, recipe_id)
         draw_box(f"DETAIL // {recipe_name}", detail_overview_lines(conn, recipe_id), width)
+        if copilot_reply:
+            draw_box("COPILOT", copilot_reply_lines(copilot_reply, width=width - 8, limit=max(3, lines // 6)), width)
         draw_box("INGREDIENTS", detail_ingredient_lines(conn, recipe_id, limit=max(4, min(12, lines // 3))), width)
         draw_box("STEPS", detail_step_lines(conn, recipe_id, width=width - 8, limit=max(4, lines // 4)), width)
     else:
@@ -1061,6 +1104,7 @@ def run_interactive(conn: sqlite3.Connection) -> None:
     search_query = ""
     search_active = False
     message = "q exits; enter accepts the highlighted recommendation"
+    copilot_reply = ""
     recs_cache: list[dict[str, object]] | None = None
     recipes_cache: list[dict[str, object]] | None = None
     history_cache: list[dict[str, object]] | None = None
@@ -1082,6 +1126,7 @@ def run_interactive(conn: sqlite3.Connection) -> None:
                 history_selected,
                 search_query,
                 message,
+                copilot_reply,
                 recs=recs_cache,
                 recipes=recipes_cache,
                 history=history_cache,
@@ -1134,26 +1179,34 @@ def run_interactive(conn: sqlite3.Connection) -> None:
             elif key in ("r", "escape"):
                 view = "recommendations"
                 detail_recipe_id = None
+                copilot_reply = ""
                 search_active = False
             elif key == "c":
                 view = "recipes"
                 detail_recipe_id = None
+                copilot_reply = ""
                 search_active = False
             elif key == "p":
                 view = "history"
                 detail_recipe_id = None
+                copilot_reply = ""
                 history_selected = 0
                 history_cache = None
                 search_active = False
             elif key == "i":
                 view = "ingredients"
+                copilot_reply = ""
                 search_active = False
             elif key == "h":
                 view = "help"
+                copilot_reply = ""
                 search_active = False
             elif key == "s":
-                view = "shopping"
-                search_active = False
+                if view == "detail" and detail_recipe_id and detail_recipe_id.startswith("yt:"):
+                    message = "shopping lists are available after approving the YouTube candidate"
+                else:
+                    view = "shopping"
+                    search_active = False
             elif key == "/":
                 view = "recipes"
                 detail_recipe_id = None
@@ -1173,14 +1226,61 @@ def run_interactive(conn: sqlite3.Connection) -> None:
                 elif recs:
                     detail_recipe_id = str(recs[selected]["recipe_id"])
                 view = "detail"
+                copilot_reply = ""
                 search_active = False
             elif key == "enter" and view == "recipes" and recipes:
                 detail_recipe_id = str(recipes[recipe_selected]["id"])
                 view = "detail"
+                copilot_reply = ""
                 search_active = False
             elif key == "enter" and view == "history" and history:
                 detail_recipe_id = str(history[history_selected]["recipe_id"])
                 view = "detail"
+                copilot_reply = ""
+            elif key == "m" and view == "detail" and detail_recipe_id:
+                if detail_recipe_id.startswith("yt:"):
+                    message = "Copilot chat is available after approving the YouTube candidate"
+                    continue
+                recipe_name = detail_name(conn, detail_recipe_id)
+                user_request = read_text_prompt(
+                    old_term,
+                    f"Ask Copilot about {recipe_name}. Ask a question or request a recipe change.",
+                )
+                if not user_request:
+                    message = "Copilot request cancelled"
+                    continue
+                message = "asking Copilot..."
+                draw_interactive(
+                    conn,
+                    view,
+                    selected,
+                    recipe_selected,
+                    recipe_sort,
+                    detail_recipe_id,
+                    history_selected,
+                    search_query,
+                    message,
+                    copilot_reply,
+                    recs=recs_cache,
+                    recipes=recipes_cache,
+                    history=history_cache,
+                )
+                try:
+                    result = ask_recipe_copilot(conn, detail_recipe_id, user_request)
+                except Exception as exc:
+                    message = f"Copilot error: {type(exc).__name__}: {exc}"
+                    copilot_reply = ""
+                else:
+                    copilot_reply = result.message
+                    message = (
+                        "recipe updated; totals recalculated"
+                        if result.updated
+                        else "Copilot answered; no recipe change"
+                    )
+                    if result.updated:
+                        recs_cache = None
+                        recipes_cache = None
+                        history_cache = None
             elif key == "a" and view == "recipes" and recipes:
                 item = recipes[recipe_selected]
                 if str(item["id"]).startswith("yt:"):

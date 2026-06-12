@@ -24,7 +24,7 @@ meal-planner
 meal
 ```
 
-Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept the highlighted recommendation, `x` to reject, `d` for ingredients and cooking steps, `s` for the shopping list, `c` for the selectable recipe catalog, `i` for ingredients, and `h` for help. In the recipe catalog, use arrows, `o` to cycle sorting, `Enter`/`d` to open details, `a` to cook the selected recipe, and `x` to delete/hide it. Vim-style `j`/`k` and `a` still work as secondary shortcuts.
+Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept the highlighted recommendation, `x` to reject, `d` for ingredients and cooking steps, `s` for the shopping list, `c` for the selectable recipe catalog, `i` for ingredients, and `h` for help. In a recipe detail view, press `m` to ask Copilot a question or request a recipe change; accepted structured changes refresh recipe totals and recommendations. In the recipe catalog, use arrows, `o` to cycle sorting, `Enter`/`d` to open details, `a` to cook the selected recipe, and `x` to delete/hide it. Vim-style `j`/`k` and `a` still work as secondary shortcuts.
 
 ## What is implemented
 
@@ -38,6 +38,7 @@ Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept 
 - Recommendations show at most one recipe per meal category, prefer categories that were not recently cooked, and include a deterministic daily discovery slot (`D`) when six suggestions are shown.
 - The interactive UI shows the last 5 accepted/cooked meals on the main recommendation screen and has a selectable past-meals view for reopening recipe details from history.
 - Recipe catalog is selectable and searchable in the UI; when sorted, the first metric shown follows the active sort, such as `P:` for protein or `M:` for cheapest per meal.
+- Recipe details include a Copilot ask/modify action for cooking questions and structured recipe edits.
 - Shopping-list aggregation for one or more recipes.
 - EVA-01 inspired terminal dashboard using ANSI colors compatible with the MacBook Linux Rice terminal palette.
 

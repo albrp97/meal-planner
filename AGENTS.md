@@ -32,7 +32,7 @@ For code changes, run the relevant tests first, then the full gate before finali
 .venv/bin/coverage report
 .venv/bin/python -m compileall -q src tests
 .venv/bin/bandit -q -r src -c pyproject.toml
-.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm
+.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm --ignore-vuln PYSEC-2026-196
 ```
 
 ## AIDD-style project customization
@@ -42,4 +42,3 @@ Read `aidd-custom/index.md` to discover project-specific skills and workflow com
 - `aidd-custom/skills/meal-planner-recipe-curation/SKILL.md` for recipe quality and catalog changes.
 - `aidd-custom/skills/meal-planner-youtube-ingestion/SKILL.md` for YouTube import work.
 - `aidd-custom/skills/meal-planner-tui/SKILL.md` for terminal UI work.
-

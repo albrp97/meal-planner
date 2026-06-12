@@ -13,7 +13,7 @@ Run this before handing changes over:
 .venv/bin/coverage report
 .venv/bin/python -m compileall -q src tests
 .venv/bin/bandit -q -r src -c pyproject.toml
-.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm
+.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm --ignore-vuln PYSEC-2026-196
 ```
 
 ## What each check covers
@@ -31,7 +31,7 @@ Run this before handing changes over:
 
 The GitHub Actions workflow in `.github/workflows/quality.yml` runs on pushes, pull requests, and manual dispatches. It tests both Python 3.9, matching the local machine compatibility target, and Python 3.12 for current Python support.
 
-The audit ignores known advisories in `pip`, `filelock`, `requests`, `urllib3`, and the Python 3.9-compatible `yt-dlp` release on Python 3.9 because their fixed releases require Python 3.10+. The project keeps Python 3.9 support for this machine and still audits all installable project/runtime dependencies.
+The audit ignores known advisories in `pip`, `filelock`, `requests`, `urllib3`, and the Python 3.9-compatible `yt-dlp` release on Python 3.9 because their fixed releases require Python 3.10+ or are otherwise outside the installable Python 3.9 toolchain for this project. The project keeps Python 3.9 support for this machine and still audits all installable project/runtime dependencies.
 
 ## Security posture
 

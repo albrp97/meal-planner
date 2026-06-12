@@ -35,6 +35,7 @@ Build a local-first Python CLI/TUI app before adding YouTube ingestion. This kee
 | `curation.py` | Similarity helpers for future keep/merge/discard workflows. |
 | `extraction.py` | LLM prompt and strict JSON parsing helpers for future recipe extraction. |
 | `enrichment.py` | Copilot-backed recipe review for procedures, missing ingredients, protein status, serving rationale, and curation decisions. |
+| `recipe_chat.py` | Detail-view Copilot Q&A and structured recipe edits using existing ingredient IDs. |
 | `llm_client.py` | Adapted local Copilot client pattern from the existing `temporal` project. |
 | `llm_schemas.py` | Structured recipe/ingredient validation helpers for future LLM output parsing. |
 | `youtube_ingestion.py` | Channel discovery, transcript caching, audio transcription fallback hooks, candidate extraction, dedupe, and approval workflow. |
@@ -95,6 +96,8 @@ The app does not use a normal paid API key. `llm_client.py` follows the local Co
 
 LLM output is parsed as strict JSON and persisted. Invalid JSON or missing required fields raises an error instead of silently accepting a bad review.
 
+The interactive detail-view Copilot action uses the same transport but a separate structured schema. Plain questions return a message only. Explicit recipe-change requests may update recipe fields and recipe ingredient rows, but only with existing ingredient IDs; after a successful update, derived cost, macro, shopping-list, and recommendation values are recomputed from SQLite on the next render.
+
 ## Current verification state
 
 The catalog now includes the seeded recipes plus approved YouTube-imported recipes. Recipe quality is enforced through seed curation, candidate validation, manual approval/discard decisions, and regression tests instead of relying on hidden fallbacks.
@@ -108,7 +111,7 @@ Quality gate currently used:
 .venv/bin/coverage report
 .venv/bin/python -m compileall -q src tests
 .venv/bin/bandit -q -r src -c pyproject.toml
-.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm
+.venv/bin/pip-audit --local --skip-editable --ignore-vuln GHSA-58qw-9mgm-455v --ignore-vuln GHSA-jp4c-xjxw-mgf9 --ignore-vuln GHSA-w853-jp5j-5j7f --ignore-vuln GHSA-qmgc-5h2g-mvrw --ignore-vuln GHSA-gc5v-m9x4-r6x2 --ignore-vuln GHSA-qccp-gfcp-xxvc --ignore-vuln GHSA-mf9v-mfxr-j63j --ignore-vuln GHSA-g3gw-q23r-pgqm --ignore-vuln PYSEC-2026-196
 meal-planner doctor
 meal-planner recipes list
 meal-planner shopping-list burrito

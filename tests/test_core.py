@@ -11,6 +11,7 @@ from meal_planner.english import translate_text
 from meal_planner.enrichment import enrich_recipes
 from meal_planner.extraction import parse_recipe_json
 from meal_planner.importers import import_recipes
+from meal_planner.recipe_chat import apply_recipe_chat_update, ask_recipe_copilot
 from meal_planner.recommender import (
     meal_category_names,
     primary_meal_category,
@@ -34,6 +35,7 @@ from meal_planner.tui import (
     filter_recipe_rows,
     history_lines,
     history_rows,
+    key_hint_lines,
     procedure_steps,
     recent_meal_lines,
     recipe_catalog_rows,
@@ -603,6 +605,169 @@ class MealPlannerCoreTests(unittest.TestCase):
         self.assertEqual(results[0]["decision_status"], "approved")
         row = self.conn.execute("SELECT * FROM recipe_reviews WHERE recipe_id = 'curry-indio'").fetchone()
         self.assertIn("portion", row["procedure"])
+
+    def test_recipe_chat_answers_without_modifying_recipe(self) -> None:
+        before = recipe_totals(self.conn, "curry-indio")
+
+        def fake_ask(_prompt: str, _context: str, model: str = "") -> str:
+            self.assertEqual(model, "gpt-5.4")
+            return json.dumps({"message": "Use a wider pan so the chicken browns faster.", "update": None})
+
+        result = ask_recipe_copilot(self.conn, "curry-indio", "How can I cook this faster?", ask=fake_ask)
+        after = recipe_totals(self.conn, "curry-indio")
+
+        self.assertFalse(result.updated)
+        self.assertIn("wider pan", result.message)
+        self.assertEqual(before["cost_czk"], after["cost_czk"])
+
+    def test_recipe_chat_update_recalculates_totals_and_clears_stale_review(self) -> None:
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO recipe_reviews
+            (recipe_id, model, procedure, missing_ingredients, suggested_ingredients, adaptation_notes,
+             protein_status, serving_notes, decision_status, decision_reason, raw_response)
+            VALUES ('curry-indio', 'test', 'stale review', '[]', '[]', '', 'ok', '', 'approved', '', '{}')
+            """
+        )
+        self.conn.commit()
+        before = recipe_totals(self.conn, "curry-indio")
+
+        def fake_ask(_prompt: str, _context: str, model: str = "") -> str:
+            self.assertEqual(model, "gpt-5.4")
+            return json.dumps(
+                {
+                    "message": "Scaled the curry to six higher-protein meals.",
+                    "update": {
+                        "servings": 6,
+                        "procedure": (
+                            "Batch cook: simmer 900g chicken with curry sauce for 25 minutes. "
+                            "Batch plan: portion into six meals."
+                        ),
+                        "protein_status": "good",
+                        "decision_status": "approved",
+                        "decision_reason": "Updated from Copilot detail chat.",
+                        "ingredients": [
+                            {
+                                "ingredient_id": "pollo",
+                                "display_name": "Chicken",
+                                "quantity": 900,
+                                "unit": "g",
+                                "grams": 900,
+                            }
+                        ],
+                    },
+                }
+            )
+
+        result = ask_recipe_copilot(self.conn, "curry-indio", "Make this six meals with more chicken.", ask=fake_ask)
+        after = recipe_totals(self.conn, "curry-indio")
+        recipe = self.conn.execute("SELECT servings, procedure FROM recipes WHERE id = 'curry-indio'").fetchone()
+        review = self.conn.execute("SELECT 1 FROM recipe_reviews WHERE recipe_id = 'curry-indio'").fetchone()
+
+        self.assertTrue(result.updated)
+        self.assertIn("Recalculated", result.message)
+        self.assertEqual(recipe["servings"], 6)
+        self.assertIn("900g chicken", recipe["procedure"])
+        self.assertNotEqual(before["cost_czk"], after["cost_czk"])
+        self.assertIsNone(review)
+
+    def test_recipe_chat_update_name_tags_and_default_ingredient_fields(self) -> None:
+        changed = apply_recipe_chat_update(
+            self.conn,
+            "curry-indio",
+            {
+                "name": "Chicken Curry Meal Prep",
+                "tags": [" curry ", "", "dinner", "meal-prep"],
+                "ingredients": [{"ingredient_id": "pollo-picado", "quantity": 0.5, "unit": "kg"}],
+            },
+        )
+        recipe = self.conn.execute("SELECT name, tags FROM recipes WHERE id = 'curry-indio'").fetchone()
+        line = self.conn.execute(
+            """
+            SELECT display_name, grams, source, notes
+            FROM recipe_ingredients
+            WHERE recipe_id = 'curry-indio'
+            ORDER BY id
+            LIMIT 1
+            """
+        ).fetchone()
+
+        self.assertTrue(changed)
+        self.assertEqual(recipe["name"], "Chicken Curry Meal Prep")
+        self.assertEqual(json.loads(recipe["tags"]), ["curry", "dinner", "meal-prep"])
+        self.assertEqual(line["display_name"], "Ground chicken")
+        self.assertEqual(line["grams"], 500)
+        self.assertEqual(line["source"], "copilot_chat")
+        self.assertEqual(line["notes"], "")
+
+    def test_recipe_chat_update_rejects_invalid_fields(self) -> None:
+        invalid_updates = (
+            {"tags": "not-a-list"},
+            {"servings": 1},
+            {"protein_status": "very_high"},
+            {"decision_status": "ship_it"},
+        )
+
+        for update in invalid_updates:
+            with self.subTest(update=update):
+                with self.assertRaises(ValueError):
+                    apply_recipe_chat_update(self.conn, "curry-indio", update)
+
+    def test_recipe_chat_update_rejects_invalid_ingredient_payloads(self) -> None:
+        invalid_updates = (
+            {"ingredients": []},
+            {"ingredients": ["bad-line"]},
+            {"ingredients": [{"ingredient_id": "missing", "quantity": 1, "unit": "g"}]},
+            {"ingredients": [{"ingredient_id": "pollo", "quantity": 0, "unit": "g"}]},
+        )
+
+        for update in invalid_updates:
+            with self.subTest(update=update):
+                with self.assertRaises(ValueError):
+                    apply_recipe_chat_update(self.conn, "curry-indio", update)
+
+    def test_recipe_chat_update_rejects_invalid_target_or_noop(self) -> None:
+        self.assertFalse(apply_recipe_chat_update(self.conn, "curry-indio", {}))
+
+        with self.assertRaises(ValueError):
+            apply_recipe_chat_update(self.conn, "curry-indio", None)
+
+        with self.assertRaises(LookupError):
+            apply_recipe_chat_update(self.conn, "missing-recipe", {})
+
+    def test_recipe_chat_requires_json_object_and_message(self) -> None:
+        def fake_list_response(_prompt: str, _context: str, model: str = "") -> str:
+            self.assertEqual(model, "claude-sonnet-4.6")
+            return "```json\n[]\n```"
+
+        def fake_missing_message(_prompt: str, _context: str, model: str = "") -> str:
+            self.assertEqual(model, "claude-sonnet-4.6")
+            return '```json\n{"update": null}\n```'
+
+        with self.assertRaises(ValueError):
+            ask_recipe_copilot(
+                self.conn,
+                "curry-indio",
+                "Answer in JSON.",
+                ask=fake_list_response,
+                model="claude-sonnet-4.6",
+            )
+
+        with self.assertRaises(ValueError):
+            ask_recipe_copilot(
+                self.conn,
+                "curry-indio",
+                "Answer in JSON.",
+                ask=fake_missing_message,
+                model="claude-sonnet-4.6",
+            )
+
+    def test_header_controls_wrap_and_show_detail_copilot_action(self) -> None:
+        lines = [strip_ansi(line) for line in key_hint_lines("detail")]
+
+        self.assertGreaterEqual(len(lines), 2)
+        self.assertIn("m ask/modify with Copilot", lines[1])
+        self.assertTrue(all(len(line) < 100 for line in lines))
 
 
 if __name__ == "__main__":
