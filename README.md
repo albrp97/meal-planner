@@ -8,6 +8,9 @@ The app stores ingredients, prices, normalized recipes, YouTube-imported recipes
 
 For a step-by-step walkthrough, see [`docs/quickstart.md`](docs/quickstart.md).
 
+This project does not use a `requirements.txt`; dependencies live in `pyproject.toml`.
+For the core app, create a virtualenv and install it in editable mode:
+
 ```sh
 cd ~/Documents/code/meal-planner
 python3 -m venv .venv
@@ -25,6 +28,8 @@ meal
 ```
 
 Inside the UI, press `q` to quit, `Up`/`Down` arrows to move, `Enter` to accept the highlighted recommendation, `x` to reject, `d` for ingredients and cooking steps, `s` for the shopping list, `c` for the selectable recipe catalog, `i` for ingredients, and `h` for help. In a recipe detail view, press `m` to ask Copilot a question or request a recipe change; accepted structured changes refresh recipe totals and recommendations. In the recipe catalog, use arrows, `o` to cycle sorting, `Enter`/`d` to open details, `a` to cook the selected recipe, and `x` to delete/hide it. Vim-style `j`/`k` and `a` still work as secondary shortcuts.
+
+The CLI works in macOS and Linux terminals, including fish, bash, and zsh. The interactive TUI uses POSIX terminal APIs (`termios`/`tty`), so native Windows shells are not supported as-is; use WSL or another Unix-like compatibility layer if you want the interactive mode there.
 
 ## What is implemented
 
